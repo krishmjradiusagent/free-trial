@@ -1089,6 +1089,113 @@ a { color: inherit; }
   line-height: 1.55;
 }
 
+.trust-feature-rail {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.trust-feature-label {
+  color: rgba(255,255,255,0.62);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.trust-feature-list {
+  display: grid;
+  gap: 12px;
+}
+
+.trust-feature-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.11), rgba(255,255,255,0.06)),
+    radial-gradient(circle at 100% 0, rgba(121, 147, 255, 0.12), transparent 44%);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+  transition:
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 220ms var(--ease-out),
+    box-shadow 220ms var(--ease-out),
+    background 220ms var(--ease-out);
+  will-change: transform;
+}
+
+.trust-feature-card.active {
+  border-color: rgba(76, 145, 255, 0.98);
+  box-shadow:
+    inset 0 0 0 1px rgba(137, 185, 255, 0.58),
+    0 0 0 1px rgba(67, 132, 255, 0.28),
+    0 18px 34px rgba(8, 42, 104, 0.24);
+  background:
+    linear-gradient(180deg, rgba(72, 126, 226, 0.34), rgba(42, 86, 156, 0.2)),
+    radial-gradient(circle at 0 0, rgba(117, 181, 255, 0.18), transparent 38%);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .trust-feature-card:hover {
+    transform: translateY(-2px) scale(1.018);
+    border-color: rgba(255,255,255,0.16);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.06),
+      0 14px 28px rgba(8, 18, 43, 0.24);
+  }
+
+  .trust-feature-card.active:hover {
+    border-color: rgba(126, 186, 255, 1);
+    box-shadow:
+      inset 0 0 0 1px rgba(162, 206, 255, 0.7),
+      0 18px 34px rgba(11, 43, 96, 0.34);
+  }
+}
+
+.trust-feature-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.trust-feature-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.88);
+  flex: 0 0 auto;
+}
+
+.trust-feature-icon svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.trust-feature-icon-infinity svg {
+  width: 20px;
+  height: 20px;
+}
+
+.trust-feature-title {
+  font-size: 18px;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: rgba(255,255,255,0.96);
+  font-family: var(--radius-font-display), sans-serif;
+}
+
+.trust-feature-copy {
+  color: rgba(255,255,255,0.72);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
 
 
 .trust-email-body {

@@ -486,10 +486,7 @@ function renderBasicDetails() {
           trustLogo('Milieu Homes', 'frame'),
           trustLogo('Rise Group', 'arc')
         ),
-        h('div', { class: 'trust-proof-grid trust-proof-grid-dark' },
-          trustCard('Faster launch', 'Brokerages can get their first workspace live in one sitting.'),
-          trustCard('Built for teams', 'Solo agents and multi-seat teams follow the same clean path.')
-        )
+        renderPhaseOneFeatureRail()
       )
     ),
     h('section', { class: 'auth-panel auth-panel-surface' },
@@ -565,6 +562,54 @@ function trustCard(title, copy) {
   return h('div', { class: 'trust-card' },
     h('strong', {}, title),
     h('span', {}, copy)
+  );
+}
+
+function renderPhaseOneFeatureRail() {
+  return h('div', { class: 'trust-feature-rail' },
+    h('div', { class: 'trust-feature-label' }, 'FEATURES'),
+    h('div', { class: 'trust-feature-list' },
+      trustFeatureCard('AI agents', 'AI prospecting, AI summarize client, Post call notes, CMA report, Property recommendations', aiFeatureSvg(), false, 'trust-feature-icon-infinity'),
+      trustFeatureCard('CRM management', 'Auditing keeps every update traceable across the workspace.', crmFeatureSvg()),
+      trustFeatureCard('Client communication', 'Radius chats, SMS, and your business number keep every conversation in one place.', chatFeatureSvg())
+    )
+  );
+}
+
+function trustFeatureCard(title, copy, icon, highlighted = false, iconClass = '') {
+  return h('div', { class: `trust-feature-card ${highlighted ? 'active' : ''}` },
+    h('div', { class: 'trust-feature-head' },
+      h('span', { class: `trust-feature-icon ${iconClass}`.trim(), 'aria-hidden': 'true' }, icon),
+      h('strong', { class: 'trust-feature-title' }, title)
+    ),
+    h('span', { class: 'trust-feature-copy' }, copy)
+  );
+}
+
+function aiFeatureSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', {
+      d: 'M5.2 10c0-1.52 1.03-2.6 2.35-2.6 1.13 0 1.84.73 2.91 2.06 1.14 1.44 1.97 2.54 3.42 2.54 1.38 0 2.32-1.08 2.32-2.5S15.26 7 13.88 7c-1.13 0-1.85.72-2.92 2.05C9.82 10.49 9 11.6 7.55 11.6 6.23 11.6 5.2 10.52 5.2 9',
+      fill: 'none',
+      stroke: 'currentColor',
+      'stroke-width': '2.05',
+      'stroke-linecap': 'round',
+      'stroke-linejoin': 'round'
+    })
+  );
+}
+
+function crmFeatureSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('rect', { x: '3', y: '4', width: '14', height: '12', rx: '3', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8' }),
+    h('path', { d: 'M6.5 8.2h7M6.5 11.8h5', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' })
+  );
+}
+
+function chatFeatureSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M5.5 5.5h9a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H10l-3.2 2.5V14.5h-1.3a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2Z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M7 9.8h6', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' })
   );
 }
 
