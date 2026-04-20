@@ -36,7 +36,7 @@ const DEFAULT_STATE = {
     email: '',
     phone: '',
     brokerage: '',
-    city: '',
+    city: [],
     teamMode: 'solo',
     teamSize: '',
     mls: '',
@@ -672,7 +672,7 @@ function renderBusinessDetails() {
         renderMlsDropdown()
       ),
       h('div', { class: 'business-footer' },
-        button(state.actions.trialStarted ? 'Trial started' : 'Start 7-day free trial', 'btn-primary business-cta', startTrial, { disabled: state.ui.loading }),
+        button(state.actions.trialStarted ? 'View Dashboard' : 'Start 7-day free trial', 'btn-primary business-cta', startTrial, { disabled: state.ui.loading }),
         h('div', { class: 'business-footer-note' }, 'Free trial starts after brokerage, city, and MLS are set.')
       ),
       h('div', { class: 'business-trust-badge' },
@@ -688,6 +688,7 @@ function unlockItem(text) {
 }
 
 function renderCityDropdown() {
+  const selectedCities = getSelectedCities();
   const options = filterOptions(CITY_OPTIONS, state.ui.cityQuery);
   return h('div', { class: 'field dropdown-field' },
     h('span', { class: 'field-label field-label-radius' }, 'CITY'),
@@ -703,18 +704,19 @@ function renderCityDropdown() {
           });
         },
       },
-        h('span', { class: `dropdown-trigger-value ${state.form.city ? 'filled' : ''}` }, state.form.city || 'Select city'),
+        h('span', { class: `dropdown-trigger-value ${selectedCities.length ? 'filled' : ''}` }, formatSelectedCities(selectedCities)),
         h('span', { class: 'dropdown-trigger-icon', 'aria-hidden': 'true' }, chevronSvg())
       ),
       state.ui.cityOpen ? h('div', { class: 'dropdown-menu dropdown-menu-tight' },
         h('div', { class: 'dropdown-option-list' },
           ...options.map((option) => h('button', {
-            class: `dropdown-option ${state.form.city === option ? 'selected' : ''}`,
+            class: `dropdown-option ${selectedCities.includes(option) ? 'selected' : ''}`,
             type: 'button',
             onClick: () => selectCity(option),
           },
+            h('span', { class: 'dropdown-option-leading', 'aria-hidden': 'true' }, checkboxSvg(selectedCities.includes(option))),
             h('span', { class: 'dropdown-option-label' }, option),
-            state.form.city === option ? h('span', { class: 'dropdown-option-check' }, 'Selected') : h('span', { class: 'dropdown-option-check' }, 'Choose')
+            h('span', { class: 'dropdown-option-check', 'aria-hidden': 'true' }, selectedCities.includes(option) ? checkSvg() : null)
           ))
         )
       ) : null
@@ -771,8 +773,9 @@ function renderMlsDropdown() {
               type: 'button',
               onClick: () => toggleMls(option),
             },
+              h('span', { class: 'dropdown-option-leading', 'aria-hidden': 'true' }, checkboxSvg(selectedOption)),
               h('span', { class: 'dropdown-option-label' }, option),
-              h('span', { class: 'dropdown-option-check' }, selectedOption ? 'Added' : 'Add')
+              h('span', { class: 'dropdown-option-check', 'aria-hidden': 'true' }, selectedOption ? checkSvg() : null)
             );
           }),
           !options.length ? h('div', { class: 'note' }, 'No MLS regions match this city yet.') : null
@@ -811,6 +814,18 @@ function chevronSvg() {
   );
 }
 
+function checkSvg() {
+  return h('svg', { viewBox: '0 0 10 10', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M2 5.3 4.05 7.1 8 3', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  );
+}
+
+function checkboxSvg(checked = false) {
+  return h('span', { class: `checkbox-ui ${checked ? 'checked' : ''}` },
+    checked ? h('span', { class: 'checkbox-ui-icon', 'aria-hidden': 'true' }, checkSvg()) : null
+  );
+}
+
 function lockSvg() {
   return h('svg', { viewBox: '0 0 16 16', 'aria-hidden': 'true', focusable: 'false' },
     h('path', { d: 'M4.5 7V5.7a3.5 3.5 0 1 1 7 0V7', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }),
@@ -833,17 +848,47 @@ function getSelectedMls() {
   return [];
 }
 
+function getSelectedCities() {
+  if (Array.isArray(state.form.city)) return state.form.city;
+  if (typeof state.form.city === 'string' && state.form.city.trim()) {
+    return state.form.city.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function formatSelectedCities(selectedCities) {
+  if (!selectedCities.length) return 'Select city';
+  if (selectedCities.length === 1) return selectedCities[0];
+  return `${selectedCities.length} cities selected`;
+}
+
 function getMlsOptionsForCity() {
-  return MLS_BY_CITY[state.form.city] || MLS_OPTIONS;
+  const selectedCities = getSelectedCities();
+  if (!selectedCities.length) return MLS_OPTIONS;
+  const next = selectedCities.flatMap((city) => MLS_BY_CITY[city] || []);
+  return [...new Set(next)];
 }
 
 function selectCity(option) {
   updateState((s) => {
-    s.form.city = option;
-    s.ui.cityOpen = false;
-    s.ui.cityQuery = '';
-    const allowed = MLS_BY_CITY[option] || MLS_OPTIONS;
-    s.form.mls = getSelectedMls().filter((item) => allowed.includes(item));
+    const selectedCities = Array.isArray(s.form.city)
+      ? [...s.form.city]
+      : (typeof s.form.city === 'string' && s.form.city.trim()
+        ? s.form.city.split(',').map((item) => item.trim()).filter(Boolean)
+        : []);
+    const nextCities = selectedCities.includes(option)
+      ? selectedCities.filter((item) => item !== option)
+      : [...selectedCities, option];
+    s.form.city = nextCities;
+    const allowed = nextCities.length
+      ? [...new Set(nextCities.flatMap((city) => MLS_BY_CITY[city] || []))]
+      : MLS_OPTIONS;
+    const currentMls = Array.isArray(s.form.mls)
+      ? [...s.form.mls]
+      : (typeof s.form.mls === 'string' && s.form.mls.trim()
+        ? s.form.mls.split(',').map((item) => item.trim()).filter(Boolean)
+        : []);
+    s.form.mls = currentMls.filter((item) => allowed.includes(item));
   });
 }
 
@@ -1073,8 +1118,8 @@ function renderMobileBusiness() {
     h('div', { class: 'section-head' }, h('div', {}, h('h3', { class: 'section-title' }, 'Business details'), h('p', { class: 'section-copy' }, 'Enough context to segment solo vs team and capture MLS.'))),
     h('div', { class: 'section-body' },
       field('Brokerage name', 'mobile-brokerage', state.form.brokerage, 'Radius Realty Group'),
-      field('City', 'mobile-city', state.form.city, 'Austin, TX'),
-      field('MLS name', 'mobile-mls', state.form.mls, 'Austin Board of Realtors')
+      field('City', 'mobile-city', getSelectedCities().join(', '), 'Austin, TX'),
+      field('MLS name', 'mobile-mls', getSelectedMls().join(', '), 'Austin Board of Realtors')
     )
   );
 }
@@ -1255,7 +1300,7 @@ function handleOtpKeydown(event, index) {
 }
 
 async function startTrial() {
-  if (!state.form.brokerage || !state.form.city || !getSelectedMls().length) {
+  if (!state.form.brokerage || !getSelectedCities().length || !getSelectedMls().length) {
     setMessage('Complete the business details before starting the trial.', 'error');
     return;
   }
