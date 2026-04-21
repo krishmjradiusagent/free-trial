@@ -1,5 +1,6 @@
 const STORAGE_KEY = 'radius-free-trial-app-v2';
 const HERO_IMAGE = './landing-hero.png';
+const SIDEBAR_IMAGE = 'file:///Users/radius/Downloads/Side%20bar.png';
 const CITY_OPTIONS = ['Austin, TX', 'Houston, TX', 'Dallas, TX', 'Atlanta, GA', 'New York, NY', 'Miami, FL', 'Los Angeles, CA', 'San Antonio, TX'];
 const MLS_OPTIONS = ['California Regional MLS', 'Combined L.A./Westside MLS', 'Bay East MLS', 'Houston Association of Realtors', 'Austin Board of Realtors', 'San Antonio Board of Realtors', 'Georgia MLS', 'First Multiple Listing Service (Atlanta)', 'New York MLS', 'OneKey MLS', 'Miami MLS', 'Dallas-Fort Worth Metrotex', 'North Texas Real Estate Information Systems'];
 const MLS_BY_CITY = {
@@ -16,7 +17,7 @@ const MLS_BY_CITY = {
 const PHASES = [
   { id: 1, name: 'Basic details', note: 'Login email and identity.' },
   { id: 2, name: 'Business details', note: 'Brokerage, team, MLS.' },
-  { id: 3, name: 'Clients', note: '3 to 5 clients or CSV help.' },
+  { id: 3, name: 'Dashboard overview', note: 'Full dashboard shell and activation hub.' },
   { id: 4, name: 'Team + phone + app', note: 'Provision the workspace.' },
   { id: 5, name: 'Activation hub', note: 'Mel and first value.' },
   { id: 6, name: 'Day 7 paywall', note: 'Billing and premium lock.' },
@@ -69,6 +70,22 @@ const DEFAULT_STATE = {
     cityQuery: '',
     mlsOpen: false,
     mlsQuery: '',
+    activationTask: 2,
+    activationClientsSaved: false,
+    activationRulesReady: false,
+    activationCallsReady: false,
+    activationSaveSuccess: false,
+    activationTestDriveUsed: false,
+    callNotesClientId: null,
+    csvFileName: '',
+    csvError: '',
+    chatDraft: '',
+    prospectingDraft: '',
+    activationDraftClients: [
+      { name: '', email: '', phone: '' },
+      { name: '', email: '', phone: '' },
+      { name: '', email: '', phone: '' },
+    ],
   },
 };
 
@@ -130,18 +147,58 @@ function createStorage() {
 
 function loadState() {
   try {
+    const boot = getBootOverrides();
+    if (boot.reset) storage.removeItem(STORAGE_KEY);
     const raw = storage.getItem(STORAGE_KEY);
     const next = raw ? mergeState(DEFAULT_STATE, JSON.parse(raw)) : clone(DEFAULT_STATE);
-    next.view = 'landing';
+    next.view = boot.view || 'landing';
+    next.phase = boot.phase || 1;
+    if (next.phase === 3 || next.phase === 5) resetDashboardQuickSteps(next);
     next.ui.cityOpen = false;
     next.ui.mlsOpen = false;
     return next;
   } catch {
+    const boot = getBootOverrides();
     const next = clone(DEFAULT_STATE);
-    next.view = 'landing';
+    next.view = boot.view || 'landing';
+    next.phase = boot.phase || 1;
+    if (next.phase === 3 || next.phase === 5) resetDashboardQuickSteps(next);
     next.ui.cityOpen = false;
     next.ui.mlsOpen = false;
     return next;
+  }
+}
+
+function resetDashboardQuickSteps(next) {
+  next.clients = [];
+  next.actions.csvImported = false;
+  next.actions.melOpened = false;
+  next.ui.activationTask = 2;
+  next.ui.activationClientsSaved = false;
+  next.ui.activationRulesReady = false;
+  next.ui.activationCallsReady = false;
+  next.ui.activationSaveSuccess = false;
+  next.ui.activationTestDriveUsed = false;
+  next.ui.callNotesClientId = null;
+  next.ui.csvFileName = '';
+  next.ui.csvError = '';
+  next.ui.chatDraft = '';
+  next.ui.prospectingDraft = '';
+  next.ui.selectedClient = null;
+  next.ui.sheet = null;
+  next.ui.dirtySheet = false;
+}
+
+function getBootOverrides() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const phaseRaw = Number(params.get('phase'));
+    const phase = Number.isFinite(phaseRaw) && phaseRaw >= 1 && phaseRaw <= 6 ? phaseRaw : null;
+    const view = params.get('view') === 'onboarding' ? 'onboarding' : null;
+    const reset = params.get('reset') === '1';
+    return { phase, view, reset };
+  } catch {
+    return { phase: null, view: null, reset: false };
   }
 }
 
@@ -183,6 +240,28 @@ function updateState(mutator) {
   mutator(state);
   persist();
   render();
+}
+
+function captureFocusState() {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return null;
+  const key = active.getAttribute('data-focus-key');
+  if (!key) return null;
+  return {
+    key,
+    start: typeof active.selectionStart === 'number' ? active.selectionStart : null,
+    end: typeof active.selectionEnd === 'number' ? active.selectionEnd : null,
+  };
+}
+
+function restoreFocusState(snapshot) {
+  if (!snapshot) return;
+  const next = document.querySelector(`[data-focus-key="${snapshot.key}"]`);
+  if (!next || typeof next.focus !== 'function') return;
+  next.focus({ preventScroll: true });
+  if (typeof next.setSelectionRange === 'function' && snapshot.start != null && snapshot.end != null) {
+    next.setSelectionRange(snapshot.start, snapshot.end);
+  }
 }
 
 function setMessage(message, type = 'success') {
@@ -268,9 +347,10 @@ function infoCard(label, title, copy) {
 }
 
 function renderOnboarding() {
-  return h('div', { class: 'onboarding onboarding-focus' },
-    h('main', { class: 'trial-focus-shell' },
-      h('article', { class: 'stage trial-stage' },
+  const dashboardMode = state.phase === 3 || state.phase === 5;
+  return h('div', { class: `onboarding onboarding-focus ${dashboardMode ? 'dashboard-mode' : ''}`.trim() },
+    h('main', { class: `trial-focus-shell ${dashboardMode ? 'dashboard-shell' : ''}`.trim() },
+      h('article', { class: `stage trial-stage ${dashboardMode ? 'dashboard-stage' : ''}`.trim() },
         h('div', { class: 'screen screen-single' },
           h('div', { class: 'screen-main screen-main-clean' }, renderStageBody(state.phase))
         )
@@ -437,6 +517,14 @@ function setPhase(phase) {
   });
 }
 
+function setView(view) {
+  updateState((s) => {
+    s.view = view;
+    s.ui.modal = null;
+    s.ui.sheet = null;
+  });
+}
+
 function renderStageBody(phase) {
   switch (phase) {
     case 1:
@@ -444,7 +532,7 @@ function renderStageBody(phase) {
     case 2:
       return renderBusinessDetails();
     case 3:
-      return renderClients();
+      return renderActivationHub();
     case 4:
       return renderTeamPhoneApp();
     case 5:
@@ -802,21 +890,21 @@ function fieldWithIcon(label, key, value, placeholder, iconNode, hasTrailing = f
 }
 
 function searchSvg() {
-  return h('svg', { viewBox: '0 0 16 16', 'aria-hidden': 'true', focusable: 'false' },
-    h('circle', { cx: '7', cy: '7', r: '4.2', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4' }),
-    h('path', { d: 'M10.2 10.2L13 13', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' })
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('circle', { cx: '11', cy: '11', r: '7', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }),
+    h('path', { d: 'm20 20-3.5-3.5', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round' })
   );
 }
 
 function chevronSvg() {
-  return h('svg', { viewBox: '0 0 16 16', 'aria-hidden': 'true', focusable: 'false' },
-    h('path', { d: 'M4.5 6l3.5 4 3.5-4', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.6', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'm6 9 6 6 6-6', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
   );
 }
 
 function checkSvg() {
-  return h('svg', { viewBox: '0 0 10 10', 'aria-hidden': 'true', focusable: 'false' },
-    h('path', { d: 'M2 5.3 4.05 7.1 8 3', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'm20 6-11 11-5-5', fill: 'none', stroke: 'currentColor', 'stroke-width': '2.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
   );
 }
 
@@ -827,10 +915,9 @@ function checkboxSvg(checked = false) {
 }
 
 function lockSvg() {
-  return h('svg', { viewBox: '0 0 16 16', 'aria-hidden': 'true', focusable: 'false' },
-    h('path', { d: 'M4.5 7V5.7a3.5 3.5 0 1 1 7 0V7', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' }),
-    h('rect', { x: '3', y: '7', width: '10', height: '7', rx: '1.8', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4' }),
-    h('path', { d: 'M8 9v1.75', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' })
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('rect', { x: '4', y: '11', width: '16', height: '10', rx: '2', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }),
+    h('path', { d: 'M8 11V7a4 4 0 0 1 8 0v4', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
   );
 }
 
@@ -996,19 +1083,120 @@ function renderTeamPhoneApp() {
 }
 
 function renderActivationHub() {
-  return h('div', { class: 'section' },
-    h('div', { class: 'section-head' },
-      h('div', {}, h('h3', { class: 'section-title' }, 'Mel'))
+  const completedTasks = getActivationCompletedCount();
+  const progress = (completedTasks / 5) * 100;
+  const activeTask = getOpenActivationTask();
+  const planLabel = 'Radius Agent';
+  const milestoneStates = [
+    { label: 'Context', done: true },
+    { label: 'Clients', done: state.ui.activationClientsSaved },
+    { label: 'Prospect', done: state.ui.activationRulesReady },
+    { label: 'Calls', done: state.ui.activationCallsReady },
+    { label: 'Mel', done: state.actions.melOpened },
+  ];
+
+  return h('div', { class: 'overview-shell' },
+    h('header', { class: 'overview-navbar' },
+      h('div', { class: 'overview-brand' },
+        h('span', { class: 'overview-brand-mark', 'aria-hidden': 'true' }, '◎'),
+        h('span', { class: 'overview-brand-text' }, 'RADIUS', h('sup', {}, '®'))
+      ),
+      h('div', { class: 'overview-navbar-actions' },
+        h('div', { class: 'overview-profile' },
+          h('div', { class: 'overview-user-avatar', 'aria-label': 'Vanessa Brown profile' }, 'V'),
+          h('div', { class: 'overview-profile-copy' },
+            h('strong', {}, 'Vanessa Brown'),
+            h('span', {}, planLabel)
+          )
+        ),
+        h('span', { class: 'overview-profile-toggle', 'aria-hidden': 'true' }, chevronSvg())
+      )
     ),
-    h('div', { class: 'section-body grid-2' },
-      infoCard('Prompt', 'Offer sample prompts that are short and concrete.', 'Show me the next best follow-up.'),
-      infoCard('Call', 'Make the call outcome visible as soon as it happens.', 'Call summary generated.'),
-      infoCard('Rules', 'Prospecting rules belong near the workflow.', 'Follow-up after 2 days.'),
-      infoCard('Proof', 'Prefer a believable demo client to an empty assistant.', 'Test client created from user data.')
+    h('aside', { class: 'overview-sidebar', 'aria-label': 'Primary navigation' },
+      h('img', {
+        class: 'overview-sidebar-image',
+        src: SIDEBAR_IMAGE,
+        alt: 'Radius sidebar navigation',
+      })
     ),
-    h('div', { class: 'section-foot' },
-      button(state.actions.melOpened ? 'Mel opened' : 'Chat with Mel', 'btn-primary', openMel, { disabled: state.ui.loading }),
-      button('Skip to paywall', 'btn-secondary', () => setPhase(6))
+    h('main', { class: 'overview-main' },
+      h('div', { class: 'overview-content' },
+        h('div', { class: 'overview-copy' },
+          h('h1', { class: 'overview-title' }, 'Welcome to Radius, Samantha! ', h('span', { 'aria-hidden': 'true' }, '👋')),
+          h('p', { class: 'overview-subtitle' }, 'Complete these quick steps to get your AI assistant up and running.')
+        ),
+        h('div', { class: 'overview-progress-wrap' },
+          h('div', { class: 'overview-trial-pill' }, 'Free trial · Day 5 of 7 · 2 days left'),
+          h('div', { class: 'overview-progress-meta' },
+            h('span', { class: 'overview-progress-label' }, `${completedTasks} of 5 tasks completed`),
+            h('span', { class: 'overview-progress-percent' }, `${Math.round(progress)}%`)
+          ),
+          h('div', { class: 'overview-progress-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '5', 'aria-valuenow': String(completedTasks), 'aria-label': `${completedTasks} of 5 tasks completed` },
+            h('span', { style: { width: `${progress}%` } })
+          ),
+          h('div', { class: 'overview-progress-milestones' },
+            ...milestoneStates.map((item, index) => h('div', { class: `overview-milestone ${item.done ? 'done' : ''} ${index + 1 === activeTask ? 'current' : ''}`.trim() },
+              h('span', { class: 'overview-milestone-dot', 'aria-hidden': 'true' }),
+              h('span', { class: 'overview-milestone-label' }, item.label)
+            ))
+          ),
+          h('div', { class: 'overview-progress-note' },
+            h('span', { class: 'overview-progress-note-pulse', 'aria-hidden': 'true' }),
+            h('span', {}, getActivationMomentumCopy())
+          )
+        ),
+        h('section', { class: 'overview-card' },
+          renderChecklistTask({
+            id: 1,
+            title: 'Set up business context',
+            status: 'done',
+            expanded: false,
+            detail: 'Business profile is saved and ready.',
+          }),
+        renderChecklistTask({
+          id: 2,
+          title: 'Add clients',
+          status: state.clients.length >= 3 ? 'done' : 'active',
+          expanded: activeTask === 2,
+          detail: '',
+          content: renderActivationClientsTask(),
+        }),
+          renderChecklistTask({
+            id: 3,
+            title: 'Setup prospecting rules',
+            status: state.ui.activationRulesReady ? 'done' : 'todo',
+            expanded: activeTask === 3,
+            detail: 'Turn on a starter automation so new leads keep moving without manual nudges.',
+            content: renderActivationRulesTask(),
+          }),
+          renderChecklistTask({
+            id: 4,
+            title: 'Call clients',
+            status: state.ui.activationCallsReady ? 'done' : 'todo',
+            expanded: activeTask === 4,
+            detail: 'Post-call notes and summary appear here after the first outreach is logged.',
+            content: renderActivationCallsTask(),
+          }),
+          renderChecklistTask({
+            id: 5,
+            title: 'Chat with Mel AI',
+            status: state.actions.melOpened ? 'done' : 'todo',
+            expanded: activeTask === 5,
+            detail: 'Open a first conversation and ask for your next best follow-up.',
+            content: renderActivationMelTask(),
+          })
+        ),
+        h('div', { class: 'overview-incentive-banner' },
+          h('div', { class: 'overview-incentive-copy' },
+            h('span', { class: 'overview-incentive-icon', 'aria-hidden': 'true' }, paymentSvg()),
+            h('div', {},
+              h('strong', {}, 'Activate paid plan for transactions'),
+              h('p', {}, 'Transactions, Auditing and Collabs need paid subscription. Base plan is $100/mo. Transactions adds $50/mo after activation.')
+            )
+          ),
+          h('button', { class: 'overview-incentive-tag', type: 'button', onClick: () => setPhase(6) }, 'View plans')
+        )
+      )
     )
   );
 }
@@ -1038,6 +1226,85 @@ function renderPaywall() {
             button('Upgrade', 'btn-primary', () => setMessage('Premium add-on path remains gated for later.', 'success')),
             button('Request help', 'btn-secondary', () => setMessage('Sales assist path captured.', 'success'))
           )
+        )
+      )
+    )
+  );
+}
+
+function renderProspectingPage() {
+  const selected = state.clients.find((client) => client.id === state.ui.selectedClient) || state.clients[0] || null;
+  return h('div', { class: 'activation-page prospecting-page' },
+    h('div', { class: 'activation-page-head' },
+      h('button', { class: 'back-link', type: 'button', onClick: () => setView('onboarding') }, '← Back to Get Started'),
+      h('div', { class: 'eyebrow' }, 'Mel Prospecting')
+    ),
+    h('div', { class: 'prospecting-shell' },
+      h('section', { class: 'prospecting-panel' },
+        h('div', { class: 'prospecting-panel-head' },
+          h('div', {},
+            h('h1', { class: 'prospecting-title' }, 'Prospecting Rules'),
+            h('p', { class: 'prospecting-copy' }, 'Assign clients, set milestones, and train Mel.'),
+          ),
+          h('button', { class: 'overview-secondary-button', type: 'button', onClick: () => setView('onboarding') }, 'Close')
+        ),
+        h('div', { class: 'prospecting-grid' },
+          h('div', { class: 'prospecting-card' },
+            h('h3', {}, 'Assign to'),
+            h('div', { class: 'prospecting-toggle-row' },
+              h('button', { class: 'prospecting-toggle active', type: 'button' }, 'Only Me'),
+              h('button', { class: 'prospecting-toggle', type: 'button' }, 'All Agents'),
+              h('button', { class: 'prospecting-toggle', type: 'button' }, 'Select Agents')
+            ),
+            h('div', { class: 'prospecting-assignee' },
+              h('div', { class: 'prospecting-avatar' }, 'TL'),
+              h('div', {},
+                h('strong', {}, 'You (Team Leader)'),
+                h('span', {}, 'Only your clients will be prospecting.'),
+              )
+            )
+          ),
+          h('div', { class: 'prospecting-card' },
+            h('h3', {}, 'Select Client'),
+            h('div', { class: 'prospecting-select' }, selected ? selected.name : 'No clients yet'),
+            h('h3', {}, 'Status'),
+            h('div', { class: 'prospecting-select' }, 'Active'),
+            h('h3', {}, 'AI Prospecting Instructions'),
+            h('textarea', {
+              class: 'prospecting-textarea',
+              rows: '8',
+              placeholder: 'Type your instruction here',
+              onInput: (event) => updateState((s) => { s.ui.prospectingDraft = event.target.value; }),
+            }, state.ui.prospectingDraft)
+          )
+        )
+      )
+    )
+  );
+}
+
+function renderChatPage() {
+  return h('div', { class: 'activation-page chat-page' },
+    h('div', { class: 'activation-page-head' },
+      h('button', { class: 'back-link', type: 'button', onClick: () => setView('onboarding') }, '← Back to Get Started'),
+      h('div', { class: 'eyebrow' }, 'Chat with Mel')
+    ),
+    h('div', { class: 'chat-shell' },
+      h('div', { class: 'chat-panel' },
+        h('h1', { class: 'chat-title' }, 'Mel'),
+        h('div', { class: 'chat-thread' },
+          h('div', { class: 'chat-bubble' }, 'Ask for the next best move.'),
+          h('div', { class: 'chat-bubble chat-bubble-user' }, state.ui.chatDraft || 'Type a message and send.')
+        ),
+        h('div', { class: 'chat-input-shell' },
+          h('textarea', {
+            class: 'chat-input',
+            'data-focus-key': 'chat-page-draft',
+            rows: '3',
+            placeholder: 'Write to Mel...',
+            onInput: (event) => updateState((s) => { s.ui.chatDraft = event.target.value; }),
+          }, state.ui.chatDraft),
+          h('button', { class: 'overview-primary-button chat-send', type: 'button', onClick: sendChatMessage }, 'Send')
         )
       )
     )
@@ -1129,7 +1396,7 @@ function renderMobileClients() {
     h('div', { class: 'section-head' }, h('div', {}, h('h3', { class: 'section-title' }, 'My clients'), h('p', { class: 'section-copy' }, 'Add 3 to 5 clients to unlock Mel.'))),
     h('div', { class: 'section-body' },
       h('div', { class: 'empty-shell' },
-        h('div', { class: 'note' }, 'Add three contacts. CSV support stays one tap away.'),
+        h('div', { class: 'note' }, 'Add first client. CSV support stays one tap away.'),
         h('div', { style: { marginTop: '12px', display: 'grid', gap: '10px' } }, ...state.clients.map((client) => h('div', { class: 'mobile-step' }, h('strong', {}, client.name), h('span', {}, client.source === 'csv' ? 'Imported from CSV.' : 'Added manually.'))))
       )
     )
@@ -1230,6 +1497,575 @@ function updateField(key, value) {
   persist();
 }
 
+function getActivationCompletedCount() {
+  let count = 1;
+  if (state.clients.length >= 3) count += 1;
+  if (state.ui.activationRulesReady) count += 1;
+  if (state.ui.activationCallsReady) count += 1;
+  if (state.actions.melOpened) count += 1;
+  return count;
+}
+
+function getOpenActivationTask() {
+  const requested = state.ui.activationTask || 0;
+  if (requested && !isActivationTaskDone(requested)) return requested;
+  if (state.clients.length < 3) return 2;
+  if (!state.ui.activationRulesReady) return 3;
+  if (!state.ui.activationCallsReady) return 4;
+  if (!state.actions.melOpened) return 5;
+  return 0;
+}
+
+function getActivationMomentumCopy() {
+  if (state.clients.length < 3) return 'Next unlock: add clients to activate prospecting rules.';
+  if (!state.ui.activationRulesReady) return 'Clients are ready. Turn on prospecting to unlock outreach.';
+  if (!state.ui.activationCallsReady) return 'Prospecting is live. Log one call to unlock the Mel summary.';
+  if (!state.actions.melOpened) return 'Call summary is ready. Open Mel to review the next best move.';
+  return 'Activation done. Review paid plan to unlock transactions.';
+}
+
+function isActivationTaskDone(id) {
+  if (id === 1) return true;
+  if (id === 2) return state.clients.length >= 3;
+  if (id === 3) return !!state.ui.activationRulesReady;
+  if (id === 4) return !!state.ui.activationCallsReady;
+  if (id === 5) return !!state.actions.melOpened;
+  return false;
+}
+
+function renderChecklistTask({ id, title, status, expanded, detail, content = null }) {
+  const locked = status === 'done';
+  const icon = status === 'done'
+    ? h('span', { class: 'overview-task-status done', 'aria-hidden': 'true' }, checkSvg())
+    : h('span', { class: `overview-task-status ${status === 'active' ? 'active' : ''}`, 'aria-hidden': 'true' }, String(id));
+
+  return h('div', { class: `overview-task ${expanded ? 'expanded' : ''} ${locked ? 'locked' : ''}`.trim() },
+    h('button', {
+      class: `overview-task-header ${locked ? 'locked' : ''}`.trim(),
+      type: 'button',
+      'aria-expanded': expanded ? 'true' : 'false',
+      disabled: locked,
+      onClick: () => toggleActivationTask(id),
+    },
+      h('div', { class: 'overview-task-title-wrap' },
+        icon,
+        h('span', { class: 'overview-task-title' }, title)
+      ),
+      locked
+        ? h('span', { class: 'overview-task-badge' }, 'Done')
+        : h('span', { class: `overview-task-toggle ${expanded ? 'open' : ''}`, 'aria-hidden': 'true' }, chevronSvg())
+    ),
+    expanded ? h('div', { class: 'overview-task-body' },
+      detail ? h('p', { class: 'overview-task-copy' }, detail) : null,
+      content
+    ) : null
+  );
+}
+
+function renderActivationClientsTask() {
+  const count = state.clients.length;
+  const testClient = state.clients.find((client) => client.source === 'test');
+  const hasTestClient = !!testClient;
+  return h('div', { class: 'overview-form-stack' },
+    h('div', { class: `overview-test-drive-card ${hasTestClient ? 'used' : ''}`.trim() },
+      h('div', { class: 'overview-test-drive-copy-wrap' },
+        h('div', { class: 'overview-test-drive-copy' },
+          h('strong', {}, 'Add yourself as test client'),
+          h('p', {}, 'Use your own details to preview Mel\'s first outreach.')
+        ),
+      ),
+      h('button', {
+        class: `overview-primary-button overview-test-drive-button ${hasTestClient ? 'danger' : ''}`.trim(),
+        type: 'button',
+        onClick: hasTestClient ? (() => deleteClient(testClient.id)) : addTestClient,
+      }, hasTestClient ? 'Remove test client' : 'Add test client')
+    ),
+    h('div', { class: 'overview-client-actions overview-client-actions-spread' },
+      h('div', { class: 'overview-client-actions-left' },
+        h('button', {
+          class: 'overview-secondary-button',
+          type: 'button',
+          onClick: () => openSheet('client'),
+        }, 'Add client'),
+        h('button', {
+          class: 'overview-secondary-button',
+          type: 'button',
+          onClick: () => openSheet('csv'),
+        }, 'Upload CSV')
+      ),
+      h('span', { class: 'overview-client-pill' }, count >= 3 ? '3 clients ready' : '3 clients to complete')
+    ),
+    count ? renderClientTable() : renderClientEmptyState()
+  );
+}
+
+function renderClientEmptyState() {
+  return h('div', { class: 'overview-empty-state' },
+    h('div', { class: 'overview-empty-header' },
+      h('div', { class: 'overview-empty-icon', 'aria-hidden': 'true' }, usersOutlineSvg()),
+      h('strong', {}, 'No clients added yet')
+    ),
+    h('div', { class: 'overview-empty-actions' },
+      h('button', { class: 'overview-primary-button', type: 'button', onClick: () => openSheet('client') }, 'Add client'),
+      h('button', { class: 'overview-secondary-button', type: 'button', onClick: () => openSheet('csv') }, 'Upload CSV')
+    )
+  );
+}
+
+function renderClientTable() {
+  const realClientCount = state.clients.filter((client) => client.source !== 'test').length;
+  return h('div', { class: 'overview-table-wrap' },
+    h('table', { class: 'overview-table' },
+      h('thead', {},
+        h('tr', {},
+          h('th', {}, 'Client Name'),
+          h('th', {}, 'Contact Info'),
+          h('th', {}, 'Status'),
+          h('th', {}, 'Actions')
+        )
+      ),
+      h('tbody', {},
+        ...state.clients.map((client) => {
+          const isTest = client.source === 'test';
+          const disableTest = isTest && realClientCount >= 3;
+          return h('tr', { class: `overview-table-row ${isTest ? 'test' : ''} ${disableTest ? 'muted' : ''}`.trim() },
+            h('td', {},
+              h('div', { class: 'overview-table-name' },
+                h('div', { class: 'overview-client-avatar' }, (client.name || 'C').slice(0, 1).toUpperCase()),
+                h('div', {},
+                  h('strong', {}, client.name),
+                  h('span', {}, isTest ? 'AI generated' : 'Manual client')
+                )
+              )
+            ),
+            h('td', {},
+              h('div', { class: 'overview-table-contact' },
+                h('span', {}, client.email || 'No email'),
+                h('span', {}, client.phone || 'No phone')
+              )
+            ),
+            h('td', {},
+              isTest
+                ? h('span', { class: 'overview-table-badge test' }, '✨ Mel AI Test Client')
+                : h('span', { class: 'overview-table-badge' }, 'Active')
+            ),
+            h('td', {},
+              h('div', { class: 'overview-table-actions' },
+                h('button', {
+                  class: 'overview-icon-button',
+                  type: 'button',
+                  title: disableTest ? 'Delete test client' : 'Delete client',
+                  onClick: () => deleteClient(client.id),
+                }, trashSvg())
+              )
+            )
+          );
+        })
+      )
+    )
+  );
+}
+
+function renderActivationMelTask() {
+  return h('div', { class: 'overview-inline-panel' },
+    h('div', { class: 'overview-chat-box' },
+      h('textarea', {
+        class: 'overview-chat-input',
+        'data-focus-key': 'activation-chat-draft',
+        rows: '3',
+        placeholder: 'Ask Mel for next step...',
+        onInput: (event) => updateState((s) => { s.ui.chatDraft = event.target.value; }),
+      }, state.ui.chatDraft),
+      h('button', {
+        class: 'overview-primary-button overview-chat-send',
+        type: 'button',
+        onClick: sendChatMessage,
+      },
+        h('span', { 'aria-hidden': 'true' }, sendSvg()),
+        'Send'
+      )
+    )
+  );
+}
+
+function renderActivationRulesTask() {
+  return h('div', { class: 'overview-inline-panel' },
+    h('div', { class: 'overview-table-wrap' },
+      h('table', { class: 'overview-table' },
+        h('thead', {},
+          h('tr', {},
+            h('th', {}, 'Client'),
+            h('th', {}, 'Client Type'),
+            h('th', {}, 'Action')
+          )
+        ),
+        h('tbody', {},
+          ...state.clients.map((client) => {
+            const isTest = client.source === 'test';
+            const clientType = Array.isArray(client.clientTypes) && client.clientTypes.length
+              ? client.clientTypes.join(', ')
+              : client.clientType || 'Contact';
+            return h('tr', { class: isTest ? 'overview-table-row test' : '' },
+              h('td', {},
+                h('div', { class: 'overview-table-name' },
+                  h('div', { class: 'overview-client-avatar' }, (client.name || 'C').slice(0, 1).toUpperCase()),
+                  h('div', {},
+                    h('strong', {}, client.name),
+                    h('span', {}, isTest ? 'Test client' : 'Real client')
+                  )
+                )
+              ),
+              h('td', {},
+                h('span', { class: `overview-table-badge ${isTest ? 'test' : ''}`.trim() }, clientType)
+              ),
+              h('td', {},
+                h('div', { class: 'overview-prospecting-actions' },
+                  h('button', {
+                    class: 'overview-secondary-button overview-setup-button',
+                    type: 'button',
+                    onClick: () => openProspectingPage(client),
+                  }, 'Add rule')
+                )
+              )
+            );
+          })
+        )
+      )
+    )
+  );
+}
+
+function renderActivationCallsTask() {
+  return h('div', { class: 'overview-inline-panel' },
+    h('div', { class: 'overview-call-table-wrap' },
+      h('table', { class: 'overview-table overview-call-table' },
+        h('thead', {},
+          h('tr', {},
+            h('th', {}, 'Client Name'),
+            h('th', {}, 'Call Duration'),
+            h('th', {}, 'Notes'),
+            h('th', {}, 'Action')
+          )
+        ),
+        h('tbody', {},
+          ...state.clients.map((client) => h('tr', {},
+            h('td', {}, client.name),
+            h('td', {}, client.callDuration || '—'),
+            h('td', {},
+              client.notes
+                ? h('button', {
+                  class: 'overview-call-note-link',
+                  type: 'button',
+                  onClick: () => updateState((s) => { s.ui.callNotesClientId = client.id; }),
+                },
+                h('span', { class: 'overview-call-note-icon', 'aria-hidden': 'true' }, documentTextSvg())
+                )
+                : client.callDuration
+                  ? h('button', {
+                    class: 'overview-call-note-link overview-call-note-summarize',
+                    type: 'button',
+                    onClick: () => updateState((s) => { s.ui.callNotesClientId = client.id; }),
+                  },
+                  h('span', { class: 'overview-call-note-icon', 'aria-hidden': 'true' }, documentTextSvg()),
+                  h('span', {}, 'Summarize call')
+                  )
+                  : h('span', { class: 'overview-call-note-empty' }, 'No notes yet.')
+            ),
+            h('td', {},
+              h('button', {
+                class: 'overview-icon-button overview-simulate-button',
+                type: 'button',
+                title: 'Simulate call',
+                'aria-label': 'Simulate call',
+                onClick: () => simulateCall(client.id),
+              }, phoneGlyphSvg())
+            )
+          ))
+        )
+      )
+    ),
+  );
+}
+
+function overviewInput(index, key, label, value, placeholder) {
+  return h('label', { class: 'overview-input-field' },
+    h('span', { class: 'sr-only' }, `${label} ${index + 1}`),
+    h('input', {
+      class: 'input overview-input',
+      value,
+      placeholder,
+      onInput: (event) => updateActivationDraft(index, key, event.target.value),
+    })
+  );
+}
+
+function getActivationDraftClients() {
+  const drafts = Array.isArray(state.ui.activationDraftClients) ? state.ui.activationDraftClients : [];
+  if (drafts.length === 3) return drafts;
+  return [
+    drafts[0] || { name: '', email: '', phone: '' },
+    drafts[1] || { name: '', email: '', phone: '' },
+    drafts[2] || { name: '', email: '', phone: '' },
+  ];
+}
+
+function updateActivationDraft(index, key, value) {
+  const drafts = getActivationDraftClients();
+  drafts[index] = { ...drafts[index], [key]: value };
+  updateState((s) => {
+    s.ui.activationDraftClients = drafts;
+  });
+}
+
+function toggleActivationTask(id) {
+  if (isActivationTaskDone(id)) return;
+  updateState((s) => {
+    s.ui.activationTask = s.ui.activationTask === id ? 0 : id;
+  });
+}
+
+function syncActivationState(nextState) {
+  const totalClients = nextState.clients.length;
+  const complete = totalClients >= 3;
+  nextState.ui.activationClientsSaved = complete;
+  if (!complete) {
+    nextState.ui.activationRulesReady = false;
+    nextState.ui.activationCallsReady = false;
+    nextState.actions.melOpened = false;
+    nextState.ui.activationTask = 2;
+    return;
+  }
+  if (!nextState.ui.activationRulesReady) nextState.ui.activationTask = 3;
+  else if (!nextState.ui.activationCallsReady) nextState.ui.activationTask = 4;
+  else if (!nextState.actions.melOpened) nextState.ui.activationTask = 5;
+}
+
+function addTestClient() {
+  const fullName = (state.form.name || 'Samantha Lee').trim() || 'Samantha Lee';
+  const email = (state.form.email || 'samantha@radius.ai').trim();
+  const phone = (state.form.phone || '(512) 555-0191').trim();
+  updateState((s) => {
+    const exists = s.clients.some((client) => client.name === fullName && client.source === 'test');
+    if (!exists) {
+      s.clients.unshift({ id: cryptoId(), name: fullName, email, phone, source: 'test', callDuration: '', notes: '' });
+    }
+    s.ui.activationTestDriveUsed = true;
+    syncActivationState(s);
+  });
+  // Clicking this auto-fills Phase 1 details into Row 1 and triggers an immediate mock SMS from Mel.
+  setMessage('Test client added. Mock SMS from Mel sent to your number.', 'success');
+}
+
+function completeProspectingRules() {
+  updateState((s) => {
+    s.ui.activationRulesReady = true;
+    s.ui.activationTask = 4;
+  });
+  setMessage('Starter prospecting rule added.', 'success');
+}
+
+function completeClientCalls() {
+  updateState((s) => {
+    s.ui.activationCallsReady = true;
+    s.ui.activationTask = 5;
+  });
+  setMessage('Post-call notes added. Mel is ready next.', 'success');
+}
+
+function deleteClient(clientId) {
+  updateState((s) => {
+    s.clients = s.clients.filter((client) => client.id !== clientId);
+    if (s.ui.callNotesClientId === clientId) s.ui.callNotesClientId = null;
+    syncActivationState(s);
+  });
+}
+
+function simulateCall(clientId) {
+  updateState((s) => {
+    const client = s.clients.find((entry) => entry.id === clientId);
+    if (!client) return;
+    client.callDuration = '02:14';
+    client.notes = '';
+    s.ui.callNotesClientId = client.id;
+  });
+}
+
+function openProspectingPage(client) {
+  updateState((s) => {
+    s.view = 'prospecting';
+    s.ui.chatDraft = '';
+    s.ui.selectedClient = client ? client.id : null;
+  });
+}
+
+function sendChatMessage() {
+  updateState((s) => {
+    s.view = 'chat';
+    s.actions.melOpened = true;
+  });
+}
+
+function trophySvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M6.2 3.5h7.6v2.1c0 2.2-1.7 4-3.8 4s-3.8-1.8-3.8-4V3.5Z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.7', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M6.2 4.7H4.8a1.8 1.8 0 0 0 0 3.6h1.8M13.8 4.7h1.4a1.8 1.8 0 1 1 0 3.6h-1.8', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.7', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M8.2 10.6h3.6v2.1a2 2 0 0 1-2 2h-.1a1.9 1.9 0 0 1-1.5-.7 2 2 0 0 1-.5-1.3v-2.1Z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.7', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M7 16.5h6', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.7', 'stroke-linecap': 'round' })
+  );
+}
+
+function sidebarButton(label, icon, active = false) {
+  return h('button', {
+    class: `overview-sidebar-button ${active ? 'active' : ''}`,
+    type: 'button',
+    'aria-label': label,
+  }, icon);
+}
+
+function overviewBrandSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M10 2.8c-3.6 0-6.5 2.9-6.5 6.5v2.2c0 .8-.3 1.5-.8 2.1l-.2.2h3.1v-4.1l4.4-3.6 4.4 3.6v4.1h3.1l-.2-.2c-.5-.6-.8-1.3-.8-2.1V9.3c0-3.6-2.9-6.5-6.5-6.5Z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.6', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M7.9 16.1h4.2', fill: 'none', stroke: '#3685f7', 'stroke-width': '1.8', 'stroke-linecap': 'round' })
+  );
+}
+
+function homeSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M3.5 9.4 10 4l6.5 5.4v7.1a.9.9 0 0 1-.9.9h-3.8v-4.7H8.2v4.7H4.4a.9.9 0 0 1-.9-.9Z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.7', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  );
+}
+
+function usersOutlineSvg() {
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+    h('circle', { cx: '9', cy: '7', r: '4', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8' }),
+    h('path', { d: 'M22 21v-2a4 4 0 0 0-3-3.87', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' }),
+    h('path', { d: 'M16 3.13a4 4 0 0 1 0 7.75', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' })
+  );
+}
+
+function sparkSvg() {
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'm12 3 1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3Z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linejoin': 'round' })
+  );
+}
+
+function phoneGlyphSvg() {
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M22 16.92v3a2 2 0 0 1-2.18 2A19.8 19.8 0 0 1 3.1 5.18 2 2 0 0 1 5.1 3h3a2 2 0 0 1 2 1.72c.12.84.34 1.66.65 2.44a2 2 0 0 1-.45 2.11L8.2 10.8a16 16 0 0 0 5 5l1.53-2.1a2 2 0 0 1 2.11-.45c.78.31 1.6.53 2.44.65A2 2 0 0 1 22 16.92Z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  );
+}
+
+function chatBubbleSvg() {
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M21 15a2 2 0 0 1-2 2H8l-4 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M8 10h8M8 14h5', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' })
+  );
+}
+
+function briefcaseOutlineSvg() {
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M10 6V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v1', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' }),
+    h('rect', { x: '3', y: '7', width: '18', height: '13', rx: '2', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8' }),
+    h('path', { d: 'M3 12h18', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' })
+  );
+}
+
+function cogOutlineSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M10 6.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm6 3.5-.9-.3a5.8 5.8 0 0 0-.5-1.2l.4-.9a.8.8 0 0 0-.2-.9l-1.1-1.1a.8.8 0 0 0-.9-.2l-.9.4a5.8 5.8 0 0 0-1.2-.5l-.3-.9a.8.8 0 0 0-.8-.5H9.4a.8.8 0 0 0-.8.5l-.3.9a5.8 5.8 0 0 0-1.2.5l-.9-.4a.8.8 0 0 0-.9.2L4.2 6.7a.8.8 0 0 0-.2.9l.4.9c-.2.4-.4.8-.5 1.2l-.9.3a.8.8 0 0 0-.5.8v1.4c0 .4.2.7.5.8l.9.3c.1.4.3.8.5 1.2l-.4.9a.8.8 0 0 0 .2.9l1.1 1.1a.8.8 0 0 0 .9.2l.9-.4c.4.2.8.4 1.2.5l.3.9c.1.3.4.5.8.5h1.2c.4 0 .7-.2.8-.5l.3-.9c.4-.1.8-.3 1.2-.5l.9.4a.8.8 0 0 0 .9-.2l1.1-1.1a.8.8 0 0 0 .2-.9l-.4-.9c.2-.4.4-.8.5-1.2l.9-.3a.8.8 0 0 0 .5-.8v-1.4a.8.8 0 0 0-.5-.8Z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.3', 'stroke-linejoin': 'round' })
+  );
+}
+
+function bellOutlineSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M6 8.2a4 4 0 0 1 8 0v2.1c0 .7.2 1.3.6 1.8l.8 1.1H4.6l.8-1.1c.4-.5.6-1.1.6-1.8Z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.6', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M8.2 14.8a1.9 1.9 0 0 0 3.6 0', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.6', 'stroke-linecap': 'round' })
+  );
+}
+
+function documentTextSvg() {
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M14 2v5h5M9 13h6M9 17h6', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' })
+  );
+}
+
+function chartBoardSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M4.5 4.5h11v11h-11zM7 13.5V10m3 3.5V7.8m3 5.7V9.4', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  );
+}
+
+function storefrontSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M4 7.2h12l-1-2.7H5L4 7.2Zm1 1.3h10v7H5v-7Zm2 2.2h6', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  );
+}
+
+function collectionSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M4.5 6h11m-11 4h11m-11 4h11', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round' })
+  );
+}
+
+function giftSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M4.2 8.2h11.6v7.3H4.2zm0 0h11.6V5.9H4.2zm5.8 0v7.3m-3.4-9c0-1 1.2-1.8 2.1-.8L10 7.2m3.3-.7c.9-1-.2-2.2-1.1-1.2L10 7.2', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  );
+}
+
+function rssSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('circle', { cx: '6.1', cy: '13.9', r: '1.2', fill: 'currentColor' }),
+    h('path', { d: 'M5 9.5a5.5 5.5 0 0 1 5.5 5.5M5 5a10 10 0 0 1 10 10', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round' })
+  );
+}
+
+function megaphoneSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M4.5 9.4h2.7l5.3-2.8v6.8l-5.3-2.8H4.5zm2.7 4.2.7 2', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  );
+}
+
+function lifebuoySvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('circle', { cx: '10', cy: '10', r: '5.8', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' }),
+    h('circle', { cx: '10', cy: '10', r: '2.3', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' }),
+    h('path', { d: 'M7.4 7.4 5.6 5.6m6.8 1.8 1.8-1.8m-6.8 7-1.8 1.8m6.8-1.8 1.8 1.8', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.4', 'stroke-linecap': 'round' })
+  );
+}
+
+function uploadSvg() {
+  return h('svg', { viewBox: '0 0 20 20', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M10 12.8V5.4M7.2 8.2 10 5.4l2.8 2.8M4.4 14.2v.6c0 .7.5 1.2 1.2 1.2h8.8c.7 0 1.2-.5 1.2-1.2v-.6', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.6', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' })
+  );
+}
+
+function trashSvg() {
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'M3 6h18', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' }),
+    h('path', { d: 'M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' }),
+    h('path', { d: 'M19 6l-1 12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M10 11v5M14 11v5', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' })
+  );
+}
+
+function sendSvg() {
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('path', { d: 'm22 2-7 20-4-9-9-4z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linejoin': 'round' }),
+    h('path', { d: 'M22 2 11 13', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' })
+  );
+}
+
+function paymentSvg() {
+  return h('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true', focusable: 'false' },
+    h('rect', { x: '3', y: '5', width: '18', height: '14', rx: '2', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8' }),
+    h('path', { d: 'M3 10h18', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' }),
+    h('circle', { cx: '7', cy: '15', r: '1', fill: 'currentColor' })
+  );
+}
+
 async function sendLoginEmail() {
   if (!state.form.name || !state.form.email || !state.form.phone) {
     setMessage('Name, email, and phone are required before sending the login email.', 'error');
@@ -1317,10 +2153,12 @@ function openSheet(kind) {
     s.ui.sheet = kind;
     s.ui.dirtySheet = false;
   });
-  const sheet = document.getElementById('workflow-sheet');
-  if (sheet && typeof sheet.focus === 'function') {
-    sheet.focus();
-  }
+  window.requestAnimationFrame(() => {
+    const sheet = document.getElementById('workflow-sheet');
+    if (sheet && typeof sheet.focus === 'function') {
+      sheet.focus();
+    }
+  });
 }
 
 async function addClient(kind, overrides = {}) {
@@ -1331,10 +2169,20 @@ async function addClient(kind, overrides = {}) {
     else await getApi().addClient({ name, source });
   });
   updateState((s) => {
-    s.clients.push({ id: cryptoId(), name, source });
+    s.clients.push({
+      id: cryptoId(),
+      name,
+      source,
+      email: overrides.email || `client${s.clients.length + 1}@radius.com`,
+      phone: overrides.phone || '(512) 555-0184',
+      callDuration: '',
+      notes: '',
+    });
     if (source === 'csv') s.actions.csvImported = true;
+    syncActivationState(s);
     s.ui.sheet = null;
-    if (s.clients.length >= 3) s.phase = 4;
+    s.ui.csvFileName = '';
+    s.ui.csvError = '';
   });
   setMessage(kind === 'csv' ? 'CSV imported. Add a few more if needed.' : 'Client added.', 'success');
 }
@@ -1352,7 +2200,8 @@ async function openMel() {
   await runAction('mel', async () => getApi().openMel({ clients: state.clients }));
   updateState((s) => {
     s.actions.melOpened = true;
-    s.phase = 6;
+    s.view = 'chat';
+    s.ui.activationTask = 0;
   });
   setMessage('Mel is open. First value is visible.', 'success');
 }
@@ -1387,10 +2236,9 @@ async function runAction(type, work) {
 function renderSheet() {
   if (!state.ui.sheet) return;
   const isCsv = state.ui.sheet === 'csv';
-  const isClient = state.ui.sheet === 'client';
   const backdrop = h('div', { class: 'sheet-backdrop open', onClick: closeSheet });
   const sheet = h('div', {
-    class: 'sheet open',
+    class: 'sheet open sheet-right',
     role: 'dialog',
     'aria-modal': 'true',
     id: 'workflow-sheet',
@@ -1407,10 +2255,16 @@ function renderSheet() {
     h('div', { class: 'sheet-body' },
       isCsv ? renderCsvSheet() : renderClientSheet()
     ),
-    h('div', { class: 'sheet-foot' },
+    h('div', { class: 'sheet-foot add-client-sheet-foot' },
       button('Back', 'btn-secondary', closeSheet),
       button(isCsv ? 'Import CSV' : 'Save client', 'btn-primary', () => {
-        if (isCsv) addClient('csv', { name: `CSV Client ${state.clients.length + 1}` });
+        if (isCsv) {
+          if (!state.ui.csvFileName) {
+            updateState((s) => { s.ui.csvError = 'Upload a CSV file first.'; });
+            return;
+          }
+          addClient('csv', { name: `CSV Client ${state.clients.length + 1}` });
+        }
         else {
           const input = document.getElementById('client-name');
           const name = input && typeof input.value === 'string' && input.value.trim()
@@ -1425,22 +2279,80 @@ function renderSheet() {
 }
 
 function renderCsvSheet() {
-  return h('div', { class: 'grid-2' },
-    h('div', {}),
-    h('div', {},
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'CSV source file'), h('input', { class: 'input', placeholder: 'clients.csv', value: '' })),
-      h('label', { class: 'field', style: { marginTop: '12px' } }, h('span', { class: 'field-label' }, 'Rows detected'), h('input', { class: 'input', value: '3' }))
+  return h('div', { class: 'add-client-sheet-stack' },
+    h('div', { class: `csv-upload-box ${state.ui.csvError ? 'error' : state.ui.csvFileName ? 'uploaded' : ''}`.trim() },
+      h('strong', {}, state.ui.csvFileName ? 'CSV ready to import' : 'Upload client CSV'),
+      h('p', {}, state.ui.csvFileName ? `File selected: ${state.ui.csvFileName}` : 'Empty, uploaded, and error states are supported here. Use a .csv export from your contacts list.'),
+      h('label', { class: 'overview-primary-button add-client-upload-button' },
+        uploadSvg(),
+        h('span', {}, state.ui.csvFileName ? 'Replace file' : 'Browse files'),
+        h('input', {
+          type: 'file',
+          accept: '.csv',
+          class: 'sr-only',
+          onChange: (event) => {
+            const file = event.target.files && event.target.files[0];
+            updateState((s) => {
+              s.ui.csvFileName = file ? file.name : '';
+              s.ui.csvError = '';
+            });
+          },
+        })
+      ),
+      state.ui.csvFileName ? h('div', { class: 'csv-upload-meta' }, 'Estimated rows: 3') : null,
+      state.ui.csvError ? h('div', { class: 'csv-upload-error' }, state.ui.csvError) : null
     )
   );
 }
 
 function renderClientSheet() {
-  return h('div', { class: 'grid-2' },
-    h('div', {},
-      h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'Full name'), h('input', { id: 'client-name', class: 'input', placeholder: 'Avery Johnson', value: '' })),
-      h('label', { class: 'field', style: { marginTop: '12px' } }, h('span', { class: 'field-label' }, 'Source'), h('input', { class: 'input', value: 'Manual' }))
+  return h('div', { class: 'add-client-sheet-stack' },
+    addClientSelectField('On whose behalf of*', 'Select agent'),
+    h('div', { class: 'add-client-upload-card' },
+      h('span', { class: 'field-label field-label-radius' }, 'Profile Picture'),
+      h('div', { class: 'add-client-upload-box' },
+        h('strong', {}, 'Browse files to upload'),
+        h('p', {}, 'PNG, JPG, GIF up to 5MB'),
+        h('label', { class: 'overview-primary-button add-client-upload-button' },
+          uploadSvg(),
+          h('span', {}, 'Browse Files'),
+          h('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif', class: 'sr-only' })
+        )
+      )
     ),
-    h('div', {})
+    addClientInputField('Full Name*', 'client-name', 'Enter full name'),
+    h('div', { class: 'add-client-group' },
+      h('div', { class: 'add-client-group-copy' },
+        h('span', { class: 'field-label field-label-radius' }, 'Contact Information*'),
+        h('p', {}, 'Provide either a phone number or an email address.')
+      ),
+      addClientInputField('Phone Number', 'client-phone', 'Enter phone number'),
+      addClientInputField('Email Address', 'client-email', 'Enter email address'),
+    ),
+    addClientInputField('Address*', 'client-address', 'Enter address', searchSvg()),
+    addClientSelectField('Client Type*', 'Select'),
+    addClientSelectField('Status*', 'Select'),
+    addClientSelectField('Client Source*', 'Select')
+  );
+}
+
+function addClientInputField(label, id, placeholder, trailing = null) {
+  return h('label', { class: 'add-client-field' },
+    h('span', { class: 'field-label field-label-radius' }, label),
+    h('div', { class: 'add-client-input-shell' },
+      h('input', { id, class: 'input add-client-input', placeholder, value: '' }),
+      trailing ? h('span', { class: 'add-client-input-trailing', 'aria-hidden': 'true' }, trailing) : null
+    )
+  );
+}
+
+function addClientSelectField(label, placeholder) {
+  return h('label', { class: 'add-client-field' },
+    h('span', { class: 'field-label field-label-radius' }, label),
+    h('button', { class: 'add-client-select', type: 'button' },
+      h('span', {}, placeholder),
+      h('span', { class: 'add-client-input-trailing', 'aria-hidden': 'true' }, chevronSvg())
+    )
   );
 }
 
@@ -1448,6 +2360,7 @@ function closeSheet() {
   updateState((s) => {
     s.ui.sheet = null;
     s.ui.dirtySheet = false;
+    s.ui.csvError = '';
   });
 }
 
@@ -1508,9 +2421,14 @@ function renderToast() {
 }
 
 function render() {
+  const focusSnapshot = captureFocusState();
   root.innerHTML = '';
   if (state.view === 'landing') {
     root.append(renderLanding());
+  } else if (state.view === 'prospecting') {
+    root.append(renderProspectingPage());
+  } else if (state.view === 'chat') {
+    root.append(renderChatPage());
   } else {
     root.append(renderOnboarding());
   }
@@ -1535,6 +2453,7 @@ function render() {
   if (toast) {
     toastRegion.append(toast);
   }
+  restoreFocusState(focusSnapshot);
 }
 
 function getLayer(id) {
